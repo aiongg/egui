@@ -435,6 +435,19 @@ pub struct NativeOptions {
     /// Per-viewport window and raw-input callbacks, see [`crate::ViewportHooks`].
     #[cfg(any(feature = "glow", feature = "wgpu_no_default_features"))]
     pub viewport_hooks: Option<std::sync::Arc<dyn crate::ViewportHooks>>,
+
+    /// macOS: whether `AppKit` may group the app's windows into tabs automatically.
+    ///
+    /// With the system setting "Prefer tabs when opening documents" at "Always", `AppKit` opens
+    /// each new window as a tab of the frontmost one, and the Window menu gets "Show Tab Bar"
+    /// and "Merge All Windows". Set this to `Some(false)` for an app that keeps one window per
+    /// document, so new windows stay separate.
+    ///
+    /// This sets `NSWindow.allowsAutomaticWindowTabbing`, which applies to every window of the
+    /// process. eframe sets it before the first window is created.
+    ///
+    /// `None` (the default) leaves `AppKit`'s setting as it is. Ignored on other platforms.
+    pub macos_automatic_window_tabbing: Option<bool>,
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -513,6 +526,8 @@ impl Default for NativeOptions {
 
             #[cfg(any(feature = "glow", feature = "wgpu_no_default_features"))]
             viewport_hooks: None,
+
+            macos_automatic_window_tabbing: None,
         }
     }
 }

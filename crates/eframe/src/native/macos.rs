@@ -182,3 +182,14 @@ fn ns_view_from_handle(handle: &AppKitWindowHandle) -> Option<&NSView> {
         }
     }
 }
+
+/// Sets `NSWindow.allowsAutomaticWindowTabbing` for the whole process.
+///
+/// See [`crate::NativeOptions::macos_automatic_window_tabbing`].
+pub(crate) fn set_automatic_window_tabbing(enabled: bool) {
+    let Some(mtm) = MainThreadMarker::new() else {
+        log::warn!("set_automatic_window_tabbing must run on the main thread; ignored");
+        return;
+    };
+    NSWindow::setAllowsAutomaticWindowTabbing(enabled, mtm);
+}

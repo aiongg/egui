@@ -431,6 +431,11 @@ fn init_native(app_name: &str, native_options: &mut NativeOptions) -> Renderer {
 
     native::viewport_hooks::install(native_options.viewport_hooks.clone());
 
+    #[cfg(target_os = "macos")]
+    if let Some(enabled) = native_options.macos_automatic_window_tabbing {
+        native::macos::set_automatic_window_tabbing(enabled);
+    }
+
     let renderer = native_options.renderer;
 
     #[cfg(all(feature = "glow", feature = "wgpu_no_default_features"))]
