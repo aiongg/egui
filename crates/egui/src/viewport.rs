@@ -351,6 +351,9 @@ pub struct ViewportBuilder {
     /// for monitor selection: if both are set, the window will be fullscreen on
     /// the chosen monitor.
     pub monitor: Option<usize>,
+
+    /// Activation token to raise and focus the window with. See [`Self::with_activation_token`].
+    pub activation_token: Option<String>,
 }
 
 impl ViewportBuilder {
@@ -712,6 +715,30 @@ impl ViewportBuilder {
         self
     }
 
+    /// Raise and focus the window with an activation token from another process.
+    ///
+    /// Use this when another process hands work to this one, e.g. a second instance of the app
+    /// passing a file to open, and the window that shows it should come to the front. That process
+    /// gets the token from its launcher (`XDG_ACTIVATION_TOKEN` on Wayland, `DESKTOP_STARTUP_ID`
+    /// on X11) and sends it along with the request.
+    ///
+    /// When the window is created, the token is passed to the windowing system with it, and takes
+    /// the place of a token in this process's own environment. When the window already exists, a
+    /// new token sends [`ViewportCommand::FocusWithToken`].
+    ///
+    /// A token is single-use, and the windowing system ignores invalid or stale ones.
+    ///
+    /// ### Platform-specific
+    /// * Wayland: the token is passed to `xdg_activation_v1` when the window is created.
+    /// * X11: the token is the startup-notification id; the launcher's startup feedback ends when the window is created.
+    /// * Elsewhere the token is ignored at window creation;
+    ///   see [`ViewportCommand::FocusWithToken`] for what an existing window does.
+    #[inline]
+    pub fn with_activation_token(mut self, token: impl Into<String>) -> Self {
+        self.activation_token = Some(token.into());
+        self
+    }
+
     /// Update this `ViewportBuilder` with a delta,
     /// returning a list of commands and a bool indicating if the window needs to be recreated.
     #[must_use]
@@ -750,6 +777,7 @@ impl ViewportBuilder {
             window_type: new_window_type,
             override_redirect: new_override_redirect,
             monitor: new_monitor,
+            activation_token: new_activation_token,
         } = new_vp_builder;
 
         let mut commands = Vec::new();
@@ -957,6 +985,15 @@ impl ViewportBuilder {
         {
             self.monitor = Some(new_monitor);
             commands.push(ViewportCommand::SetMonitor(new_monitor));
+        }
+
+        // The token is used once, when the window is created; a recreated window replays it,
+        // which the windowing system ignores. A new token raises the existing window.
+        if let Some(new_activation_token) = new_activation_token
+            && Some(&new_activation_token) != self.activation_token.as_ref()
+        {
+            self.activation_token = Some(new_activation_token.clone());
+            commands.push(ViewportCommand::FocusWithToken(new_activation_token));
         }
 
         (commands, recreate_window)
@@ -1174,6 +1211,28 @@ pub enum ViewportCommand {
     /// Has no effect on Wayland, or if the window is minimized or invisible.
     Focus,
 
+    /// Raise and focus the window with an activation token from another process (native only).
+    ///
+    /// This is how a running app brings a window to the front when another process asks it to,
+    /// e.g. when a second instance hands over a file to open. That process passes along the
+    /// token it was launched with (`XDG_ACTIVATION_TOKEN` on Wayland, `DESKTOP_STARTUP_ID` on X11).
+    /// [`ViewportBuilder::with_activation_token`] sends this command when the token changes.
+    ///
+    /// A minimized window is restored first. Does nothing if the window already has focus.
+    ///
+    /// ### Platform-specific
+    /// * Wayland: the window requests attention (`xdg_activation_v1` with a token of its own);
+    ///   whether that focuses it is up to the compositor. The token is not used: winit cannot
+    ///   activate an existing window with a token yet.
+    /// * X11: same as [`Self::Focus`] (`_NET_ACTIVE_WINDOW`); window managers with
+    ///   focus-stealing prevention may only mark the window as demanding attention.
+    /// * macOS: same as [`Self::Focus`]; the token is ignored. On macOS 14 and later the
+    ///   handing-over process should yield activation (`NSApp.yieldActivationToApplication`).
+    /// * Windows: same as [`Self::Focus`]; the token is ignored. Windows may only flash the taskbar
+    ///   button unless the handing-over process calls `AllowSetForegroundWindow` with this
+    ///   process's id first.
+    FocusWithToken(String),
+
     /// If the window is unfocused, attract the user's attention (native only).
     ///
     /// Typically, this means that the window will flash on the taskbar, or bounce, until it is interacted with.
@@ -1333,4 +1392,38 @@ pub struct ImmediateViewport<'a> {
 
     /// The user-code that shows the GUI.
     pub viewport_ui_cb: Box<dyn FnMut(&mut Ui) + 'a>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn activation_token_is_kept_by_patch_and_raises_an_existing_window() {
+        let mut current = ViewportBuilder::default().with_title("doc");
+
+        let (commands, recreate) =
+            current.patch(ViewportBuilder::default().with_activation_token("t1"));
+        assert_eq!(
+            commands,
+            vec![ViewportCommand::FocusWithToken("t1".to_owned())]
+        );
+        assert!(!recreate);
+        assert_eq!(current.activation_token.as_deref(), Some("t1"));
+
+        // The same token every frame does nothing; no token keeps the current one.
+        let (commands, _) = current.patch(ViewportBuilder::default().with_activation_token("t1"));
+        assert!(commands.is_empty());
+        let (commands, _) = current.patch(ViewportBuilder::default().with_title("doc"));
+        assert!(commands.is_empty());
+        assert_eq!(current.activation_token.as_deref(), Some("t1"));
+
+        let (commands, recreate) =
+            current.patch(ViewportBuilder::default().with_activation_token("t2"));
+        assert_eq!(
+            commands,
+            vec![ViewportCommand::FocusWithToken("t2".to_owned())]
+        );
+        assert!(!recreate);
+    }
 }

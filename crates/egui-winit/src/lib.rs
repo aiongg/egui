@@ -2313,6 +2313,9 @@ fn process_viewport_command(
                 window.focus_window();
             }
         }
+        ViewportCommand::FocusWithToken(token) => {
+            focus_with_token(window, &token);
+        }
         ViewportCommand::RequestUserAttention(a) => {
             window.request_user_attention(match a {
                 egui::UserAttentionType::Reset => None,
@@ -2487,6 +2490,7 @@ pub fn create_winit_window_attributes(
         mouse_passthrough: _, // handled in `apply_viewport_builder_to_window`
         clamp_size_to_monitor_size: _, // Handled in `viewport_builder` in `epi_integration.rs`
         monitor: _, // Handled in `create_window` (needs ActiveEventLoop for monitor handle)
+        activation_token: _activation_token,
     } = viewport_builder;
 
     let mut window_attributes = winit::window::WindowAttributes::default()
@@ -2599,18 +2603,25 @@ pub fn create_winit_window_attributes(
     // The variables are cleared once read, per the startup-notification
     // spec: a token is single-use, and leaving it in the environment would
     // have every later window — and every child process — replay it.
+    //
+    // A token on the builder (`ViewportBuilder::with_activation_token`) comes
+    // from a later request, e.g. a second instance handing over a file, so it
+    // wins over the one we were launched with.
     #[cfg(all(target_os = "linux", any(feature = "wayland", feature = "x11")))]
     {
         use winit::platform::startup_notify::{
             WindowAttributesExtStartupNotify as _, reset_activation_token_env,
         };
-        let token = std::env::var("XDG_ACTIVATION_TOKEN")
+        let env_token = std::env::var("XDG_ACTIVATION_TOKEN")
             .or_else(|_| std::env::var("DESKTOP_STARTUP_ID"))
             .ok()
             .filter(|t| !t.is_empty());
-        if let Some(token) = token {
-            log::debug!("using the activation token from the environment to focus the window");
+        if env_token.is_some() {
             reset_activation_token_env();
+        }
+        let token = _activation_token.filter(|t| !t.is_empty()).or(env_token);
+        if let Some(token) = token {
+            log::debug!("using an activation token to focus the window");
             window_attributes = window_attributes
                 .with_activation_token(winit::window::ActivationToken::from_raw(token));
         }
@@ -2671,6 +2682,31 @@ pub fn create_winit_window_attributes(
     }
 
     window_attributes
+}
+
+/// See [`ViewportCommand::FocusWithToken`] for what each platform does.
+fn focus_with_token(window: &Window, token: &str) {
+    if window.has_focus() {
+        return;
+    }
+    if window.is_minimized() == Some(true) {
+        window.set_minimized(false);
+    }
+
+    #[cfg(all(feature = "wayland", target_os = "linux"))]
+    {
+        use winit::platform::wayland::WindowExtWayland as _;
+        if window.xdg_toplevel().is_some() {
+            // `focus_window` does nothing on Wayland, and winit has no way to activate an
+            // existing surface with a given token.
+            log::debug!("Wayland: requesting attention; the activation token is not used");
+            window.request_user_attention(Some(winit::window::UserAttentionType::Informational));
+            return;
+        }
+    }
+
+    let _ = token;
+    window.focus_window();
 }
 
 fn to_winit_icon(icon: &egui::IconData) -> Option<winit::window::Icon> {
