@@ -1,4 +1,4 @@
-use crate::emath::{Rect, Vec2};
+use crate::emath::{Pos2, Rect, Vec2};
 
 /// An input event from the backend into egui, about a specific [viewport](crate::viewport).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -15,6 +15,43 @@ pub enum ViewportEvent {
     ///
     /// This even will wake up both the child and parent viewport.
     Close,
+}
+
+/// A monitor (display) on the desktop, as reported by the backend.
+///
+/// Positions and sizes are desktop coordinates in each monitor's own logical points:
+/// the native physical pixels divided by [`Self::scale_factor`] of that monitor.
+/// The primary monitor usually has its top-left corner at the origin,
+/// so monitors to the left of it or above it have negative coordinates.
+/// When monitors have different scale factors, their logical rectangles need not touch or line up,
+/// because each is scaled by its own factor.
+///
+/// On Wayland, [`Self::position`] is the compositor's layout position when it reports one
+/// and `(0, 0)` otherwise, and window positions are unknown
+/// ([`ViewportInfo::outer_rect`] is `None`), so a window can't be placed on a monitor by position.
+#[derive(Clone, Debug, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
+pub struct MonitorInfo {
+    /// Human-readable name of the monitor, if known.
+    pub name: Option<String>,
+
+    /// The top-left corner of the monitor on the desktop, in the monitor's logical points.
+    ///
+    /// May be negative. On Wayland, `(0, 0)` unless the compositor reports a layout position.
+    pub position: Pos2,
+
+    /// The size of the monitor, in its logical points.
+    pub size: Vec2,
+
+    /// Native physical pixels per logical point on this monitor.
+    pub scale_factor: f32,
+}
+
+impl MonitorInfo {
+    /// The monitor's area on the desktop: [`Self::position`] and [`Self::size`].
+    pub fn rect(&self) -> Rect {
+        Rect::from_min_size(self.position, self.size)
+    }
 }
 
 /// Information about the current viewport, given as input each frame.
@@ -44,6 +81,20 @@ pub struct ViewportInfo {
 
     /// Current monitor size in egui points.
     pub monitor_size: Option<Vec2>,
+
+    /// The monitor the viewport is mostly on, if known.
+    ///
+    /// See [`MonitorInfo`] for its coordinate space. Unlike [`Self::monitor_size`],
+    /// it ignores [`crate::Context::zoom_factor`].
+    pub monitor: Option<MonitorInfo>,
+
+    /// All monitors on the desktop, if known; empty if unknown.
+    ///
+    /// See [`MonitorInfo`] for their coordinate space.
+    ///
+    /// `egui-winit` refreshes this list when the viewport is created and when its window is moved,
+    /// resized or changes scale factor, at most once a second.
+    pub monitors: Vec<MonitorInfo>,
 
     /// The inner rectangle of the native window, in monitor space and ui points scale.
     ///
@@ -123,6 +174,8 @@ impl ViewportInfo {
             events: core::mem::take(&mut self.events),
             native_pixels_per_point: self.native_pixels_per_point,
             monitor_size: self.monitor_size,
+            monitor: self.monitor.clone(),
+            monitors: self.monitors.clone(),
             inner_rect: self.inner_rect,
             outer_rect: self.outer_rect,
             minimized: self.minimized,
@@ -140,6 +193,8 @@ impl ViewportInfo {
             events,
             native_pixels_per_point,
             monitor_size,
+            monitor,
+            monitors,
             inner_rect,
             outer_rect,
             minimized,
@@ -168,6 +223,20 @@ impl ViewportInfo {
 
             ui.label("Monitor size:");
             ui.label(opt_as_str(monitor_size));
+            ui.end_row();
+
+            ui.label("Monitor:");
+            ui.label(monitor.as_ref().map_or(String::new(), monitor_as_string));
+            ui.end_row();
+
+            ui.label("Monitors:");
+            ui.label(
+                monitors
+                    .iter()
+                    .map(monitor_as_string)
+                    .collect::<Vec<_>>()
+                    .join("\n"),
+            );
             ui.end_row();
 
             ui.label("Inner rect:");
@@ -209,6 +278,16 @@ impl ViewportInfo {
                 v.as_ref().map_or(String::new(), |r| {
                     format!("Pos: {:?}, size: {:?}", r.min, r.size())
                 })
+            }
+
+            fn monitor_as_string(m: &MonitorInfo) -> String {
+                format!(
+                    "{}: pos: {:?}, size: {:?}, scale: {}",
+                    m.name.as_deref().unwrap_or("?"),
+                    m.position,
+                    m.size,
+                    m.scale_factor
+                )
             }
 
             #[expect(clippy::ref_option)]

@@ -145,6 +145,14 @@ pub struct State {
     /// for details.
     #[cfg(target_os = "windows")]
     pressed_processed_physical_keys: HashSet<winit::keyboard::PhysicalKey>,
+
+    /// The desktop's monitors, listed by [`Self::update_viewport_monitors`].
+    monitors: Vec<egui::MonitorInfo>,
+
+    /// The window moved, resized or changed scale factor since [`Self::monitors`] was listed.
+    monitors_stale: bool,
+
+    monitors_listed_at: Option<web_time::Instant>,
 }
 
 impl State {
@@ -201,6 +209,9 @@ impl State {
             scroll_momentum_monitor: macos_scroll_momentum::ScrollMomentumMonitor::install(),
             #[cfg(target_os = "windows")]
             pressed_processed_physical_keys: HashSet::new(),
+            monitors: Vec::new(),
+            monitors_stale: true,
+            monitors_listed_at: None,
         };
 
         slf.egui_input
@@ -345,6 +356,28 @@ impl State {
         self.egui_input.take()
     }
 
+    /// Set [`ViewportInfo::monitors`] from this viewport's cached list of the desktop's monitors.
+    ///
+    /// The list is enumerated on the first call, and again after [`Self::on_window_event`] saw the
+    /// window move, resize or change scale factor, at most once a second.
+    /// Call this every frame, next to [`update_viewport_info`].
+    pub fn update_viewport_monitors(&mut self, viewport_info: &mut ViewportInfo, window: &Window) {
+        const MIN_INTERVAL: web_time::Duration = web_time::Duration::from_secs(1);
+
+        let due = self
+            .monitors_listed_at
+            .is_none_or(|listed_at| MIN_INTERVAL <= listed_at.elapsed());
+        if self.monitors_stale && due {
+            self.monitors = available_monitors(window);
+            self.monitors_stale = false;
+            self.monitors_listed_at = Some(web_time::Instant::now());
+        }
+
+        if viewport_info.monitors != self.monitors {
+            viewport_info.monitors.clone_from(&self.monitors);
+        }
+    }
+
     /// Call this when there is a new event.
     ///
     /// The result can be found in [`Self::egui_input`] and be extracted with [`Self::take_egui_input`].
@@ -374,6 +407,15 @@ impl State {
                 self.egui_input_mut().safe_area_insets = Some(safe_area::get_safe_area_insets());
             }
             _ => {}
+        }
+
+        if matches!(
+            event,
+            WindowEvent::Moved(_)
+                | WindowEvent::Resized(_)
+                | WindowEvent::ScaleFactorChanged { .. }
+        ) {
+            self.monitors_stale = true;
         }
 
         match event {
@@ -1484,11 +1526,34 @@ pub fn outer_rect_in_points(window: &Window, pixels_per_point: f32) -> Option<Re
     Some(outer_rect_px / pixels_per_point)
 }
 
+/// Describe a winit monitor in its own logical points.
+fn monitor_info(monitor: &winit::monitor::MonitorHandle) -> egui::MonitorInfo {
+    let scale_factor = monitor.scale_factor();
+    let position = monitor.position().to_logical::<f32>(scale_factor);
+    let size = monitor.size().to_logical::<f32>(scale_factor);
+    egui::MonitorInfo {
+        name: monitor.name(),
+        position: egui::pos2(position.x, position.y),
+        size: egui::vec2(size.width, size.height),
+        scale_factor: scale_factor as f32,
+    }
+}
+
+fn available_monitors(window: &Window) -> Vec<egui::MonitorInfo> {
+    profiling::function_scope!();
+    window
+        .available_monitors()
+        .map(|monitor| monitor_info(&monitor))
+        .collect()
+}
+
 /// Update the given viewport info with the current state of the window.
 ///
 /// Call before [`State::take_egui_input`].
 ///
 /// If this is called right after window creation, `is_init` should be `true`, otherwise `false`.
+/// [`ViewportInfo::monitors`] is listed only when `is_init` is `true`;
+/// [`State::update_viewport_monitors`] keeps it current after that.
 pub fn update_viewport_info(
     viewport_info: &mut ViewportInfo,
     egui_ctx: &egui::Context,
@@ -1515,13 +1580,16 @@ pub fn update_viewport_info(
         None
     };
 
-    let monitor_size = {
+    let (monitor_size, monitor) = {
         profiling::scope!("monitor_size");
         if let Some(monitor) = window.current_monitor() {
             let size = monitor.size().to_logical::<f32>(pixels_per_point.into());
-            Some(egui::vec2(size.width, size.height))
+            (
+                Some(egui::vec2(size.width, size.height)),
+                Some(monitor_info(&monitor)),
+            )
         } else {
-            None
+            (None, None)
         }
     };
 
@@ -1529,6 +1597,10 @@ pub fn update_viewport_info(
     viewport_info.native_pixels_per_point = Some(window.scale_factor() as f32);
 
     viewport_info.monitor_size = monitor_size;
+    viewport_info.monitor = monitor;
+    if is_init {
+        viewport_info.monitors = available_monitors(window);
+    }
     viewport_info.inner_rect = inner_rect;
     viewport_info.outer_rect = outer_rect;
 

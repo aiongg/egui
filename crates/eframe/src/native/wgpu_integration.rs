@@ -698,6 +698,7 @@ impl WgpuWinitRunning<'_> {
             let Some(egui_winit) = egui_winit.as_mut() else {
                 return Ok(EventResult::Wait);
             };
+            egui_winit.update_viewport_monitors(&mut viewport.info, window);
             let mut raw_input = egui_winit.take_egui_input(window);
 
             let show_ui = mode == PassMode::Full
@@ -1255,6 +1256,7 @@ fn render_immediate_viewport(
             return;
         };
         egui_winit::update_viewport_info(&mut viewport.info, egui_ctx, window, false);
+        egui_winit.update_viewport_monitors(&mut viewport.info, window);
 
         let mut input = egui_winit.take_egui_input(window);
         input.viewports = viewports

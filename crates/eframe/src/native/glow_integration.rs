@@ -686,6 +686,7 @@ impl GlowWinitRunning<'_> {
             let Some(egui_winit) = viewport.egui_winit.as_mut() else {
                 return Ok(EventResult::Wait);
             };
+            egui_winit.update_viewport_monitors(&mut viewport.info, window);
             let mut raw_input = egui_winit.take_egui_input(window);
             let viewport_ui_cb = viewport.viewport_ui_cb.clone();
 
@@ -1766,6 +1767,7 @@ fn render_immediate_viewport(
             return;
         };
         egui_winit::update_viewport_info(&mut viewport.info, egui_ctx, window, false);
+        egui_winit.update_viewport_monitors(&mut viewport.info, window);
 
         let mut raw_input = egui_winit.take_egui_input(window);
         raw_input.viewports = glutin
