@@ -101,6 +101,10 @@ pub struct State {
     modifiers: egui::Modifiers,
 
     pointer_pos_in_points: Option<egui::Pos2>,
+    /// Where the pointer was last seen, kept after it leaves the window. A button released
+    /// after the pointer left (a drag that ends outside the window) is reported there, so egui
+    /// doesn't keep the button held.
+    last_pointer_pos_in_points: Option<egui::Pos2>,
     any_pointer_button_down: bool,
     current_cursor_icon: Option<egui::CursorIcon>,
 
@@ -189,6 +193,7 @@ impl State {
             egui_input,
             modifiers: egui::Modifiers::default(),
             pointer_pos_in_points: None,
+            last_pointer_pos_in_points: None,
             any_pointer_button_down: false,
             current_cursor_icon: None,
             current_custom_cursor: None,
@@ -924,11 +929,16 @@ impl State {
         state: winit::event::ElementState,
         button: winit::event::MouseButton,
     ) {
-        if let Some(pos) = self.pointer_pos_in_points
+        let pressed = state == winit::event::ElementState::Pressed;
+        let pos = if pressed {
+            self.pointer_pos_in_points
+        } else {
+            self.pointer_pos_in_points
+                .or(self.last_pointer_pos_in_points)
+        };
+        if let Some(pos) = pos
             && let Some(button) = translate_mouse_button(button)
         {
-            let pressed = state == winit::event::ElementState::Pressed;
-
             self.egui_input.events.push(egui::Event::PointerButton {
                 pos,
                 button,
@@ -987,6 +997,7 @@ impl State {
             pos_in_pixels.y as f32 / pixels_per_point,
         );
         self.pointer_pos_in_points = Some(pos_in_points);
+        self.last_pointer_pos_in_points = Some(pos_in_points);
 
         if self.simulate_touch_screen {
             if self.any_pointer_button_down {
