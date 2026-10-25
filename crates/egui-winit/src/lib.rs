@@ -2228,9 +2228,11 @@ impl State {
                 }
             }
             WindowEvent::Ime(ime) => {
+                log::debug!(target: "ime_trace", "egui-winit got {ime:?}");
                 if matches!(ime, winit::event::Ime::Commit(_))
                     && let Some((before_bytes, after_bytes)) = ime_delete_surrounding(window)
                 {
+                    log::debug!(target: "ime_trace", "egui-winit pushes DeleteSurroundingBytes {{ before: {before_bytes}, after: {after_bytes} }}");
                     self.egui_input.events.push(egui::Event::Ime(
                         egui::ImeEvent::DeleteSurroundingBytes {
                             before_bytes,
@@ -3142,6 +3144,14 @@ impl State {
     }
 
     fn on_keyboard_input(&mut self, event: &winit::event::KeyEvent) {
+        log::debug!(
+            target: "ime_trace",
+            "egui-winit got KeyboardInput {:?} {:?} text={:?} repeat={}",
+            event.logical_key,
+            event.state,
+            event.text,
+            event.repeat
+        );
         let winit::event::KeyEvent {
             // Represents the position of a key independent of the currently active layout.
             //
@@ -3449,6 +3459,7 @@ impl State {
             }
 
             profiling::scope!("set_ime_allowed");
+            log::debug!(target: "ime_trace", "egui-winit set_ime_allowed({allow_ime})");
             window.set_ime_allowed(allow_ime);
         }
 
@@ -3464,8 +3475,10 @@ impl State {
                 .is_some_and(|ime| ime.should_interrupt_composition && ime.reset_request.is_none());
         if reset_request.is_some() || stock_interrupt {
             if let Some(request) = reset_request {
+                log::debug!(target: "ime_trace", "egui-winit reset request {request:?}");
                 window.reset_ime_with_request(request.as_u64());
             } else {
+                log::debug!(target: "ime_trace", "egui-winit stock interrupt (set_ime_allowed false, true)");
                 // Preserve the stock untokened interruption operation and timing.
                 window.set_ime_allowed(false);
                 window.set_ime_allowed(true);
