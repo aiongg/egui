@@ -29,6 +29,7 @@ Drop a patch when an egui release in use contains it.
 | E21 | `a70470b0` | egui-winit, egui | `ImeEvent::DeleteSurroundingBytes`: `TextEdit` deletes the exact bytes an input method replaces, in the commit's undo step | not proposed | macOS press-and-hold and dictation, Wayland input methods; needs winit `craft/0.30.13-lang` |
 | E22 | on `craft/interact-enabled` | egui | `TextEditState::preedit`: the IME composition's pre-edit range and text, so a widget wrapping `TextEdit` can tell marked text from committed text; a new IME context (focus gained, the editor back after a pass without it, a purpose change) ends the old composition, its pre-edit text kept as typed | not proposed | craft-ui text fields (`behavior::Typing`) |
 | E23 | on `craft/interact-enabled` | egui | `Response::describe_for_accessibility` is public: the AccessKit description and name `on_hover_text` sets, for tooltips with other contents | upstreamable | craft-ui `TooltipExt` |
+| E24 | on `craft/interact-enabled` | egui | `ScrollArea::horizontal_scroll_bar_label` and `vertical_scroll_bar_label`: the AccessKit name of each scroll bar (WCAG 4.1.2); no name by default | upstreamable | craft-libs `List` accessibility check |
 
 E1 changes from `e7e37ad`: the hooks are installed in `init_native`, so `create_native` uses them too, and a
 unit test covers installing and replacing them. E2+E3 is the same change as `b02321d` with a `surface_fit`
