@@ -31,6 +31,7 @@ Drop a patch when an egui release in use contains it.
 | E23 | on `craft/interact-enabled` | egui | `Response::describe_for_accessibility` is public: the AccessKit description and name `on_hover_text` sets, for tooltips with other contents | upstreamable | craft-ui `TooltipExt` |
 | E24 | on `craft/interact-enabled` | egui | `ScrollArea::horizontal_scroll_bar_label` and `vertical_scroll_bar_label`: the AccessKit name of each scroll bar (WCAG 4.1.2); no name by default | upstreamable | craft-libs `List` accessibility check |
 | E25 | on `craft/interact-enabled` | egui | `Context::set_accesskit_focus`: reports a widget as the AccessKit focus for one pass without changing `memory.focused()` or event routing, for menus that light a row while no widget has egui focus | upstreamable | craft-libs `Menu` |
+| E26 | on `craft/interact-enabled` | egui | a pointer press goes to the widget under the press position (`PointerEvent::Pressed::position`), not the one under the pass's last pointer position: when a press and moves arrive in one pass (a quick drag, a slow frame), `begin_pass` hit-tests the press at its own position, so `is_pointer_button_down_on`, `drag_started` and `clicked` name the widget `PointerState::press_origin` is over; hover stays at the last position | upstreamable | craft-ui `Rulers` (corner and ruler strips next to the canvas) |
 
 E1 changes from `e7e37ad`: the hooks are installed in `init_native`, so `create_native` uses them too, and a
 unit test covers installing and replacing them. E2+E3 is the same change as `b02321d` with a `surface_fit`
